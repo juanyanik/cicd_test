@@ -44,20 +44,19 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const output = #### Terraform Format and Style 🖌\${{ steps.fmt.outcome }}\
-            #### Terraform Initialization ⚙️\${{ steps.init.outcome }}\
-            #### Terraform Validation 🤖\${{ steps.validate.outcome }}\
-            #### Terraform Plan 📖\${{ steps.plan.outcome }}\
+            const output = `
+            #### Terraform Format and Style 🖌 \${{ steps.fmt.outcome }}
+            #### Terraform Initialization ⚙️ \${{ steps.init.outcome }}
+            #### Terraform Validation 🤖 \${{ steps.validate.outcome }}
+            #### Terraform Plan 📖 \${{ steps.plan.outcome }}
             
             <details><summary>Show Plan</summary>
-            
-            \\\\n
+            \n
             ${process.env.PLAN}
-            \\\
-            
+            \n
             </details>
             
-            *Pusher: @${{ github.actor }}, Action: \${{ github.event_name }}\, Working Directory: \${{ env.tf_actions_working_dir }}\, Workflow: \${{ github.workflow }}\*;
+            *Pusher: @${{ github.actor }}, Action: \${{ github.event_name }}, Working Directory: \${{ env.tf_actions_working_dir }}, Workflow: \${{ github.workflow }}*`
             
             github.issues.createComment({
               issue_number: context.issue.number,
@@ -74,13 +73,18 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve
 
-      - name: schemachange install
-        id: sc-install
-        run: pip install schemachange
+      - name: Set up Python virtual environment
+        run: |
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install schemachange
 
       - name: schemachange deploy
-        id: sc-deploy
         working-directory: ./migrations
+        run: |
+          source venv/bin/activate
+          schemachange -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -d $SF_DATABASE -c $SF_DATABASE.SCHEMACHANGE.CHANGE_HISTORY --create-change-history-table
         env:
           SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
           SF_USERNAME: ${{ secrets.SF_USERNAME }}
@@ -88,4 +92,3 @@ jobs:
           SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
           SF_DATABASE: ${{ secrets.SF_DATABASE }}
           SNOWFLAKE_PASSWORD: ${{ secrets.SF_PASSWORD }}
-        run: schemachange -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -d $SF_DATABASE -c $SF_DATABASE.SCHEMACHANGE.CHANGE_HISTORY --create-change-history-table
