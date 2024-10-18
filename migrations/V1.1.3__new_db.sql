@@ -1,6 +1,4 @@
 -- Create demo_db_dev with schema and table
-CREATE DATABASE demo_db_dev;
-
 USE DATABASE demo_db_dev;
 
 CREATE SCHEMA demo_schema_dev;
@@ -18,4 +16,3 @@ VALUES
     (3, 'Charlie');
 
 -- Create empty demo_db_prod
-CREATE DATABASE demo_db_prod;
