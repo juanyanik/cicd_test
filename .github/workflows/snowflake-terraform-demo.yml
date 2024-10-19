@@ -10,7 +10,6 @@ on:
 
   pull_request:
 
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 jobs:
@@ -21,7 +20,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform steps
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v1
         with:
@@ -33,7 +31,7 @@ jobs:
 
       - name: Terraform Init
         id: init
-        run: terraform init
+        run: terraform init -reconfigure  # Added -reconfigure flag
 
       - name: Terraform Validate
         id: validate
@@ -84,12 +82,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform Apply for development
       - name: Terraform Apply for Development
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -var-file=dev.tfvars
 
-      # Snowflake schemachange steps
       - name: Use Python 3.8.x
         uses: actions/setup-python@v2.2.1
         with:
@@ -106,10 +102,7 @@ jobs:
         run: |
           echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
           python --version
-          echo "Step 1: Installing schemachange"
           pip install schemachange
-          
-          echo "Step 2: Running schemachange"
           schemachange -f $GITHUB_WORKSPACE/migrations -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -d $SF_DATABASE -c $SF_DATABASE.SCHEMACHANGE.CHANGE_HISTORY --create-change-history-table
 
   staging:
@@ -119,12 +112,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform Apply for staging
       - name: Terraform Apply for Staging
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -var-file=staging.tfvars
 
-      # Snowflake schemachange steps
       - name: Use Python 3.8.x
         uses: actions/setup-python@v2.2.1
         with:
@@ -141,10 +132,7 @@ jobs:
         run: |
           echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
           python --version
-          echo "Step 1: Installing schemachange"
           pip install schemachange
-          
-          echo "Step 2: Running schemachange"
           schemachange -f $GITHUB_WORKSPACE/migrations -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -d $SF_DATABASE -c $SF_DATABASE.SCHEMACHANGE.CHANGE_HISTORY --create-change-history-table
 
   production:
@@ -154,12 +142,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform Apply for production
       - name: Terraform Apply for Production
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -var-file=prod.tfvars
 
-      # Snowflake schemachange steps
       - name: Use Python 3.8.x
         uses: actions/setup-python@v2.2.1
         with:
@@ -176,8 +162,5 @@ jobs:
         run: |
           echo "GITHUB_WORKSPACE: $GITHUB_WORKSPACE"
           python --version
-          echo "Step 1: Installing schemachange"
           pip install schemachange
-          
-          echo "Step 2: Running schemachange"
           schemachange -f $GITHUB_WORKSPACE/migrations -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -d $SF_DATABASE -c $SF_DATABASE.SCHEMACHANGE.CHANGE_HISTORY --create-change-history-table
