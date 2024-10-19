@@ -6,11 +6,8 @@ on:
       - main
     paths:
       - 'migrations/**'
-
   pull_request:
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
+  workflow_dispatch:  # Allows manual runs from the Actions tab
 
 jobs:
   snowflake-terraform-devops-demo:
@@ -20,30 +17,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform steps
+      # Set up Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v1
         with:
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
+      # Check Terraform formatting
       - name: Terraform Format
         id: fmt
         run: terraform fmt -check
 
+      # Initialize Terraform
       - name: Terraform Init
         id: init
         run: terraform init -migrate-state
 
+      # Validate Terraform configuration
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
 
+      # Plan Terraform changes for pull requests
       - name: Terraform Plan
         id: plan
         if: github.event_name == 'pull_request'
         run: terraform plan -no-color
         continue-on-error: true
 
+      # Comment on PR with Terraform output
       - uses: actions/github-script@0.9.0
         if: github.event_name == 'pull_request'
         env:
@@ -63,7 +65,7 @@ jobs:
             \n
             </details>
             
-            *Pusher: @${{ github.actor }}, Action: \${{ github.event_name }}, Working Directory: \${{ env.tf_actions_working_dir }}, Workflow: \${{ github.workflow }}*
+            *Pusher: @${{ github.actor }}, Action: \${{ github.event_name }}, Workflow: \${{ github.workflow }}*
             
             github.issues.createComment({
               issue_number: context.issue.number,
@@ -72,6 +74,7 @@ jobs:
               body: output
             })
 
+      # Check if plan failed
       - name: Terraform Plan Status
         if: steps.plan.outcome == 'failure'
         run: exit 1
@@ -83,17 +86,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform Apply for development
+      # Apply Terraform changes for development
       - name: Terraform Apply for Development
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -var-file=dev.tfvars
 
-      # Snowflake schemachange steps
+      # Setup Python environment for schemachange
       - name: Use Python 3.8.x
         uses: actions/setup-python@v2.2.1
         with:
           python-version: 3.8.x
 
+      # Run schemachange for Development
       - name: Run schemachange for Development
         env:
           SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
@@ -118,17 +122,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform Apply for staging
+      # Apply Terraform changes for staging
       - name: Terraform Apply for Staging
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -var-file=staging.tfvars
 
-      # Snowflake schemachange steps
+      # Setup Python environment for schemachange
       - name: Use Python 3.8.x
         uses: actions/setup-python@v2.2.1
         with:
           python-version: 3.8.x
 
+      # Run schemachange for Staging
       - name: Run schemachange for Staging
         env:
           SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
@@ -153,17 +158,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform Apply for production
+      # Apply Terraform changes for production
       - name: Terraform Apply for Production
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve -var-file=prod.tfvars
 
-      # Snowflake schemachange steps
+      # Setup Python environment for schemachange
       - name: Use Python 3.8.x
         uses: actions/setup-python@v2.2.1
         with:
           python-version: 3.8.x
 
+      # Run schemachange for Production
       - name: Run schemachange for Production
         env:
           SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
