@@ -31,7 +31,7 @@ jobs:
       # Initialize Terraform
       - name: Terraform Init
         id: init
-        run: terraform init -migrate-state
+        run: terraform init -reconfigure -input=false -no-color
 
       # Validate Terraform configuration
       - name: Terraform Validate
