@@ -6,7 +6,10 @@ on:
       - main
     paths:
       - 'migrations/**'
+
   pull_request:
+
+  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 jobs:
@@ -80,10 +83,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform Init for development
-      - name: Terraform Init for Development
-        run: terraform init -reconfigure
-
       # Terraform Apply for development
       - name: Terraform Apply for Development
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -119,10 +118,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      # Terraform Init for staging
-      - name: Terraform Init for Staging
-        run: terraform init -reconfigure
-
       # Terraform Apply for staging
       - name: Terraform Apply for Staging
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -157,10 +152,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-
-      # Terraform Init for production
-      - name: Terraform Init for Production
-        run: terraform init -reconfigure
 
       # Terraform Apply for production
       - name: Terraform Apply for Production
