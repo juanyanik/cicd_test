@@ -1,128 +1,184 @@
-import snowflake.connector
-import os
-import json
-from snowflake.connector.errors import ProgrammingError
+name: Snowflake DDL Extraction
 
-# Ensure base directory exists
-base_dir = 'snowflake_ddls'
-os.makedirs(base_dir, exist_ok=True)
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Run daily at midnight
+  workflow_dispatch:  # Allow manual trigger
 
-# Create a marker file to ensure the directory is tracked even if empty
-with open(os.path.join(base_dir, '.gitkeep'), 'w') as f:
-    f.write('')
-
-def quote_identifier(identifier):
-    return f'"{identifier}"'
-
-# Print connection parameters (excluding password)
-print("Connecting with parameters:")
-print(f"Account: {os.environ.get('SF_ACCOUNT')}")
-print(f"Username: {os.environ.get('SF_USERNAME')}")
-print(f"Role: {os.environ.get('SF_ROLE')}")
-print(f"Warehouse: {os.environ.get('SF_WAREHOUSE')}")
-
-try:
-    # Snowflake connection
-    conn = snowflake.connector.connect(
-        account=os.environ['SF_ACCOUNT'],
-        user=os.environ['SF_USERNAME'],
-        password=os.environ['SF_PASSWORD'],
-        role=os.environ['SF_ROLE'],
-        warehouse=os.environ['SF_WAREHOUSE'],
-        database=None  # Don't specify database in connection
-    )
-
-    cursor = conn.cursor()
+jobs:
+  extract-snowflake-ddls:
+    runs-on: ubuntu-latest
     
-    # Test connection
-    cursor.execute("SELECT CURRENT_ROLE()")
-    current_role = cursor.fetchone()[0]
-    print(f"Connected successfully. Current role: {current_role}")
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install snowflake-connector-python
+    
+    - name: Extract Snowflake DDLs
+      env:
+        SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
+        SF_USERNAME: ${{ secrets.SF_USERNAME }}
+        SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+        SF_ROLE: ${{ secrets.SF_ROLE }}
+        SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
+      run: |
+        cat << 'EOF' > extract_ddls.py
+        import snowflake.connector
+        import os
+        import json
+        from snowflake.connector.errors import ProgrammingError
 
-    # List available databases
-    cursor.execute("SHOW DATABASES")
-    databases = [row[1] for row in cursor.fetchall() if row[1] not in ['SNOWFLAKE', 'SNOWFLAKE_SAMPLE_DATA']]
-    print(f"Available databases: {databases}")
+        # Ensure base directory exists
+        base_dir = 'snowflake_ddls'
+        os.makedirs(base_dir, exist_ok=True)
 
-    # Function to create directory and save DDL
-    def save_ddl(database, object_type, schema, name, ddl):
-        dir_path = f'{base_dir}/{database}/{object_type}/{schema}'
-        os.makedirs(dir_path, exist_ok=True)
-        file_path = f'{dir_path}/{name}.sql'
-        with open(file_path, 'w') as f:
-            f.write(ddl)
-        print(f"Saved DDL to {file_path}")
+        # Create a marker file to ensure the directory is tracked even if empty
+        with open(os.path.join(base_dir, '.gitkeep'), 'w') as f:
+            f.write('')
 
-    # Process each database
-    for database in databases:
-        print(f"\nProcessing database: {database}")
-        quoted_db = quote_identifier(database)
-        cursor.execute(f"USE DATABASE {quoted_db}")
+        def quote_identifier(identifier):
+            return f'"{identifier}"'
 
-        # Extract schemas
-        cursor.execute("SHOW SCHEMAS")
-        schemas = [row[1] for row in cursor.fetchall() 
-                  if not row[1].startswith('INFORMATION_SCHEMA') 
-                  and row[1] not in ['ACCOUNT_USAGE', 'SNOWFLAKE']]
-        print(f"Found schemas in {database}: {schemas}")
+        # Print connection parameters (excluding password)
+        print("Connecting with parameters:")
+        print(f"Account: {os.environ.get('SF_ACCOUNT')}")
+        print(f"Username: {os.environ.get('SF_USERNAME')}")
+        print(f"Role: {os.environ.get('SF_ROLE')}")
+        print(f"Warehouse: {os.environ.get('SF_WAREHOUSE')}")
 
-        for schema in schemas:
-            print(f"Processing schema: {schema}")
-            quoted_schema = quote_identifier(schema)
+        try:
+            # Snowflake connection
+            conn = snowflake.connector.connect(
+                account=os.environ['SF_ACCOUNT'],
+                user=os.environ['SF_USERNAME'],
+                password=os.environ['SF_PASSWORD'],
+                role=os.environ['SF_ROLE'],
+                warehouse=os.environ['SF_WAREHOUSE'],
+                database=None  # Don't specify database in connection
+            )
+
+            cursor = conn.cursor()
             
-            try:
-                cursor.execute(f"USE SCHEMA {quoted_schema}")
-                
-                # Tables
-                cursor.execute(f"SHOW TABLES IN SCHEMA {quoted_schema}")
-                tables = cursor.fetchall()
-                print(f"Found {len(tables)} tables in {database}.{schema}")
-                
-                for table in tables:
-                    table_name = table[1]
-                    quoted_table = quote_identifier(table_name)
-                    full_name = f"{quoted_schema}.{quoted_table}"
-                    print(f"Extracting DDL for table: {full_name}")
-                    cursor.execute(f"SELECT GET_DDL('TABLE', '{full_name}')")
-                    ddl = cursor.fetchone()[0]
-                    save_ddl(database, 'tables', schema, table_name, ddl)
-                
-                # Views
-                cursor.execute(f"SHOW VIEWS IN SCHEMA {quoted_schema}")
-                views = cursor.fetchall()
-                print(f"Found {len(views)} views in {database}.{schema}")
-                
-                for view in views:
-                    view_name = view[1]
-                    quoted_view = quote_identifier(view_name)
-                    full_name = f"{quoted_schema}.{quoted_view}"
-                    print(f"Extracting DDL for view: {full_name}")
-                    cursor.execute(f"SELECT GET_DDL('VIEW', '{full_name}')")
-                    ddl = cursor.fetchone()[0]
-                    save_ddl(database, 'views', schema, view_name, ddl)
-                
-                # Stored Procedures
-                cursor.execute(f"SHOW PROCEDURES IN SCHEMA {quoted_schema}")
-                procs = cursor.fetchall()
-                print(f"Found {len(procs)} procedures in {database}.{schema}")
-                
-                for proc in procs:
-                    proc_name = proc[1]
-                    quoted_proc = quote_identifier(proc_name)
-                    full_name = f"{quoted_schema}.{quoted_proc}"
-                    print(f"Extracting DDL for procedure: {full_name}")
-                    cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{full_name}')")
-                    ddl = cursor.fetchone()[0]
-                    save_ddl(database, 'procedures', schema, proc_name, ddl)
-            
-            except Exception as e:
-                print(f"Error processing schema {schema}: {str(e)}")
-                continue
+            # Test connection
+            cursor.execute("SELECT CURRENT_ROLE()")
+            current_role = cursor.fetchone()[0]
+            print(f"Connected successfully. Current role: {current_role}")
 
-except Exception as e:
-    print(f"Error: {str(e)}")
-    raise
-finally:
-    if 'conn' in locals():
-        conn.close()
-        print("Snowflake connection closed")
+            # List available databases
+            cursor.execute("SHOW DATABASES")
+            databases = [row[1] for row in cursor.fetchall() if row[1] not in ['SNOWFLAKE', 'SNOWFLAKE_SAMPLE_DATA']]
+            print(f"Available databases: {databases}")
+
+            # Function to create directory and save DDL
+            def save_ddl(database, object_type, schema, name, ddl):
+                dir_path = f'{base_dir}/{database}/{object_type}/{schema}'
+                os.makedirs(dir_path, exist_ok=True)
+                file_path = f'{dir_path}/{name}.sql'
+                with open(file_path, 'w') as f:
+                    f.write(ddl)
+                print(f"Saved DDL to {file_path}")
+
+            # Process each database
+            for database in databases:
+                print(f"\nProcessing database: {database}")
+                quoted_db = quote_identifier(database)
+                cursor.execute(f"USE DATABASE {quoted_db}")
+
+                # Extract schemas
+                cursor.execute("SHOW SCHEMAS")
+                schemas = [row[1] for row in cursor.fetchall() 
+                          if not row[1].startswith('INFORMATION_SCHEMA') 
+                          and row[1] not in ['ACCOUNT_USAGE', 'SNOWFLAKE']]
+                print(f"Found schemas in {database}: {schemas}")
+
+                for schema in schemas:
+                    print(f"Processing schema: {schema}")
+                    quoted_schema = quote_identifier(schema)
+                    
+                    try:
+                        cursor.execute(f"USE SCHEMA {quoted_schema}")
+                        
+                        # Tables
+                        cursor.execute(f"SHOW TABLES IN SCHEMA {quoted_schema}")
+                        tables = cursor.fetchall()
+                        print(f"Found {len(tables)} tables in {database}.{schema}")
+                        
+                        for table in tables:
+                            table_name = table[1]
+                            quoted_table = quote_identifier(table_name)
+                            full_name = f"{quoted_schema}.{quoted_table}"
+                            print(f"Extracting DDL for table: {full_name}")
+                            cursor.execute(f"SELECT GET_DDL('TABLE', '{full_name}')")
+                            ddl = cursor.fetchone()[0]
+                            save_ddl(database, 'tables', schema, table_name, ddl)
+                        
+                        # Views
+                        cursor.execute(f"SHOW VIEWS IN SCHEMA {quoted_schema}")
+                        views = cursor.fetchall()
+                        print(f"Found {len(views)} views in {database}.{schema}")
+                        
+                        for view in views:
+                            view_name = view[1]
+                            quoted_view = quote_identifier(view_name)
+                            full_name = f"{quoted_schema}.{quoted_view}"
+                            print(f"Extracting DDL for view: {full_name}")
+                            cursor.execute(f"SELECT GET_DDL('VIEW', '{full_name}')")
+                            ddl = cursor.fetchone()[0]
+                            save_ddl(database, 'views', schema, view_name, ddl)
+                        
+                        # Stored Procedures
+                        cursor.execute(f"SHOW PROCEDURES IN SCHEMA {quoted_schema}")
+                        procs = cursor.fetchall()
+                        print(f"Found {len(procs)} procedures in {database}.{schema}")
+                        
+                        for proc in procs:
+                            proc_name = proc[1]
+                            quoted_proc = quote_identifier(proc_name)
+                            full_name = f"{quoted_schema}.{quoted_proc}"
+                            print(f"Extracting DDL for procedure: {full_name}")
+                            cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{full_name}')")
+                            ddl = cursor.fetchone()[0]
+                            save_ddl(database, 'procedures', schema, proc_name, ddl)
+                    
+                    except Exception as e:
+                        print(f"Error processing schema {schema}: {str(e)}")
+                        continue
+
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            raise
+        finally:
+            if 'conn' in locals():
+                conn.close()
+                print("Snowflake connection closed")
+        EOF
+        python extract_ddls.py
+    
+    - name: Commit and push changes
+      run: |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        
+        # Check if there are any changes to commit
+        if [ -d "snowflake_ddls" ]; then
+          if git status --porcelain | grep .; then
+            echo "Changes detected, committing..."
+            git add snowflake_ddls/
+            git commit -m "Update Snowflake DDLs"
+            git push
+          else
+            echo "No changes to commit"
+          fi
+        else
+          echo "snowflake_ddls directory not found"
+          exit 1
+        fi
