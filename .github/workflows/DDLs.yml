@@ -14,12 +14,12 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    # Step 2: Install SnowSQL using the official Snowflake repository
+    # Step 2: Install SnowSQL
     - name: Install SnowSQL
       run: |
-        curl -o snowflake-install.sh https://s3.amazonaws.com/snowflake-client-releases/snowflake-cli/latest/snowflake-cli-ubuntu-install.sh
-        chmod +x snowflake-install.sh
-        sudo ./snowflake-install.sh
+        curl -o snowsql.deb https://repo.snowflake.com/snowsql/ubuntu/snowflake-snowsql-latest_amd64.deb
+        sudo dpkg -i snowsql.deb
+        sudo apt-get install -f  # Ensure dependencies are installed
 
     # Step 3: Run the SnowSQL command to extract DDLs
     - name: Extract DDLs from Snowflake
