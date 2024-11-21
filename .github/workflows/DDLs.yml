@@ -26,7 +26,7 @@ jobs:
       - name: Export Snowflake DDLs
         env:
           SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
-          SF_USER: ${{ secrets.SF_USER }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
           SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
           SF_ROLE: ${{ secrets.SF_ROLE }}
           SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
@@ -37,7 +37,7 @@ jobs:
 
           # Snowflake connection
           conn = snowflake.connector.connect(
-              user=os.getenv('SF_USER'),
+              user=os.getenv('SF_USERNAME'),
               password=os.getenv('SF_PASSWORD'),
               account=os.getenv('SF_ACCOUNT'),
               warehouse=os.getenv('SF_WAREHOUSE'),
