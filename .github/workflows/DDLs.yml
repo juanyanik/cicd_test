@@ -1,54 +1,99 @@
-name: Extract Snowflake DDLs
+name: Snowflake DDL Extraction
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # Run daily at midnight
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
-  extract-ddls:
+  extract-snowflake-ddls:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install snowflake-connector-python
+    
+    - name: Extract Snowflake DDLs
+      env:
+        SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
+        SF_USERNAME: ${{ secrets.SF_USERNAME }}
+        SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+        SF_ROLE: ${{ secrets.SF_ROLE }}
+        SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
+      run: |
+        python << EOF
+import snowflake.connector
+import os
+import json
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y curl jq
+# Snowflake connection
+conn = snowflake.connector.connect(
+    account=os.environ['SF_ACCOUNT'],
+    user=os.environ['SF_USERNAME'],
+    password=os.environ['SF_PASSWORD'],
+    role=os.environ['SF_ROLE'],
+    warehouse=os.environ['SF_WAREHOUSE']
+)
 
-      - name: Install SnowSQL CLI
-        run: |
-          curl -o snowsql.deb https://repo.snowflake.com/snowsql/ubuntu/snowflake-snowsql-latest_amd64.deb
-          sudo dpkg -i snowsql.deb
-          sudo apt-get install -f  # Ensure dependencies are installed
+cursor = conn.cursor()
 
-      - name: Set DNS for GitHub Actions runner
-        run: |
-          echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+# Function to create directory and save DDL
+def save_ddl(object_type, schema, name, ddl):
+    # Create directory structure
+    dir_path = f'snowflake_ddls/{object_type}/{schema}'
+    os.makedirs(dir_path, exist_ok=True)
+    
+    # Save DDL to file
+    file_path = f'{dir_path}/{name}.sql'
+    with open(file_path, 'w') as f:
+        f.write(ddl)
 
-      - name: Run Snowflake DDL extraction
-        env:
-          SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
-          SF_USERNAME: ${{ secrets.SF_USERNAME }}
-          SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
-          SF_ROLE: ${{ secrets.SF_ROLE }}
-          SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
-        run: |
-          # Ensure SnowSQL is installed correctly
-          snowsql --version
+# Extract schemas
+cursor.execute("SHOW SCHEMAS")
+schemas = [row[1] for row in cursor.fetchall()]
 
-          # Query Snowflake to extract DDLs for all tables
-          echo "Extracting DDLs from Snowflake..."
-          snowsql -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -p $SF_PASSWORD \
-            -q "SHOW TABLES IN SCHEMA PUBLIC;" | jq -r '.[].name' | while read table_name; do
-              # For each table, extract the DDL
-              echo "Extracting DDL for table: $table_name"
-              snowsql -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -p $SF_PASSWORD \
-                -q "SHOW CREATE TABLE $table_name;" > "$table_name-ddl.sql"
-            done
+for schema in schemas:
+    # Tables
+    cursor.execute(f"SHOW TABLES IN SCHEMA {schema}")
+    for table in cursor.fetchall():
+        table_name = table[1]
+        cursor.execute(f"GET DDL TABLE {schema}.{table_name}")
+        ddl = cursor.fetchone()[0]
+        save_ddl('tables', schema, table_name, ddl)
+    
+    # Views
+    cursor.execute(f"SHOW VIEWS IN SCHEMA {schema}")
+    for view in cursor.fetchall():
+        view_name = view[1]
+        cursor.execute(f"GET DDL VIEW {schema}.{view_name}")
+        ddl = cursor.fetchone()[0]
+        save_ddl('views', schema, view_name, ddl)
+    
+    # Stored Procedures
+    cursor.execute(f"SHOW PROCEDURES IN SCHEMA {schema}")
+    for proc in cursor.fetchall():
+        proc_name = proc[1]
+        cursor.execute(f"GET DDL PROCEDURE {schema}.{proc_name}")
+        ddl = cursor.fetchone()[0]
+        save_ddl('procedures', schema, proc_name, ddl)
 
-      - name: Upload DDLs to artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: ddl-files
-          path: "*.sql"
+conn.close()
+EOF
+    
+    - name: Commit and push changes
+      run: |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git add snowflake_ddls
+        git commit -m "Update Snowflake DDLs" || exit 0
+        git push
