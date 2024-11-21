@@ -1,49 +1,46 @@
 name: Extract Snowflake DDLs
 
 on:
-  workflow_dispatch:  # Manual trigger
-  schedule:           # Optional: scheduled runs
-    - cron: '0 0 * * *'  # Runs daily at midnight UTC
+  workflow_dispatch:
 
 jobs:
-  extract-ddls:
+  extract-ddls-job:
     runs-on: ubuntu-latest
-
     steps:
-    # Step 1: Checkout the repository
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v2
 
-    # Step 2: Ensure DNS resolution (temporary workaround for DNS issues)
-    - name: Set DNS resolver
-      run: |
-        sudo sh -c 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
+      - name: Install SnowSQL CLI
+        run: |
+          curl -o snowsql.deb https://repo.snowflake.com/snowsql/ubuntu/snowflake-snowsql-latest_amd64.deb
+          sudo dpkg -i snowsql.deb
+          sudo apt-get install -f  # Ensure dependencies are installed
 
-    # Step 3: Install SnowSQL
-    - name: Install SnowSQL
-      run: |
-        curl -o snowsql.deb https://repo.snowflake.com/snowsql/ubuntu/snowflake-snowsql-latest_amd64.deb
-        sudo dpkg -i snowsql.deb
-        sudo apt-get install -f  # Ensure dependencies are installed
+      - name: Extract DDLs from Snowflake
+        env:
+          SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
+          SF_USERNAME: ${{ secrets.SF_USERNAME }}
+          SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+          SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
+        run: |
+          snowsql -a $SF_ACCOUNT -u $SF_USERNAME -p $SF_PASSWORD -w $SF_WAREHOUSE -o output_file=ddls/ddl_output.sql -q "
+            -- Extract DDLs for all databases
+            SELECT GET_DDL('DATABASE', DATABASE_NAME) FROM INFORMATION_SCHEMA.DATABASES;
 
-    # Step 4: Run the SnowSQL command to extract DDLs
-    - name: Extract DDLs from Snowflake
-      env:
-        SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
-        SF_USERNAME: ${{ secrets.SF_USERNAME }}
-        SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
-      run: |
-        snowsql -a $SF_ACCOUNT -u $SF_USERNAME -p $SF_PASSWORD -o output_file=ddls/ddl_output.sql -q "
-        SELECT GET_DDL('DATABASE', 'YOUR_DATABASE_NAME');
-        "
+            -- Extract DDLs for all schemas in each database
+            SELECT GET_DDL('SCHEMA', CONCAT(DATABASE_NAME, '.', SCHEMA_NAME)) FROM INFORMATION_SCHEMA.SCHEMATA;
 
-    # Step 5: Commit and push DDLs back to the repository
-    - name: Commit and push DDLs
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
-        git add ddls/
-        git commit -m "Update Snowflake DDLs"
-        git push
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            -- Optionally, extract DDLs for all tables or other objects
+            -- SELECT GET_DDL('TABLE', CONCAT(DATABASE_NAME, '.', SCHEMA_NAME, '.', TABLE_NAME)) 
+            -- FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE';
+          "
+
+      - name: Commit and push DDLs
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add ddls/
+          git commit -m "Update Snowflake DDLs"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
