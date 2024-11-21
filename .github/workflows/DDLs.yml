@@ -31,64 +31,65 @@ jobs:
         SF_ROLE: ${{ secrets.SF_ROLE }}
         SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
       run: |
-        python << EOF
-import snowflake.connector
-import os
-import json
+        cat << 'EOF' > extract_ddls.py
+        import snowflake.connector
+        import os
+        import json
 
-# Snowflake connection
-conn = snowflake.connector.connect(
-    account=os.environ['SF_ACCOUNT'],
-    user=os.environ['SF_USERNAME'],
-    password=os.environ['SF_PASSWORD'],
-    role=os.environ['SF_ROLE'],
-    warehouse=os.environ['SF_WAREHOUSE']
-)
+        # Snowflake connection
+        conn = snowflake.connector.connect(
+            account=os.environ['SF_ACCOUNT'],
+            user=os.environ['SF_USERNAME'],
+            password=os.environ['SF_PASSWORD'],
+            role=os.environ['SF_ROLE'],
+            warehouse=os.environ['SF_WAREHOUSE']
+        )
 
-cursor = conn.cursor()
+        cursor = conn.cursor()
 
-# Function to create directory and save DDL
-def save_ddl(object_type, schema, name, ddl):
-    # Create directory structure
-    dir_path = f'snowflake_ddls/{object_type}/{schema}'
-    os.makedirs(dir_path, exist_ok=True)
-    
-    # Save DDL to file
-    file_path = f'{dir_path}/{name}.sql'
-    with open(file_path, 'w') as f:
-        f.write(ddl)
+        # Function to create directory and save DDL
+        def save_ddl(object_type, schema, name, ddl):
+            # Create directory structure
+            dir_path = f'snowflake_ddls/{object_type}/{schema}'
+            os.makedirs(dir_path, exist_ok=True)
+            
+            # Save DDL to file
+            file_path = f'{dir_path}/{name}.sql'
+            with open(file_path, 'w') as f:
+                f.write(ddl)
 
-# Extract schemas
-cursor.execute("SHOW SCHEMAS")
-schemas = [row[1] for row in cursor.fetchall()]
+        # Extract schemas
+        cursor.execute("SHOW SCHEMAS")
+        schemas = [row[1] for row in cursor.fetchall()]
 
-for schema in schemas:
-    # Tables
-    cursor.execute(f"SHOW TABLES IN SCHEMA {schema}")
-    for table in cursor.fetchall():
-        table_name = table[1]
-        cursor.execute(f"GET DDL TABLE {schema}.{table_name}")
-        ddl = cursor.fetchone()[0]
-        save_ddl('tables', schema, table_name, ddl)
-    
-    # Views
-    cursor.execute(f"SHOW VIEWS IN SCHEMA {schema}")
-    for view in cursor.fetchall():
-        view_name = view[1]
-        cursor.execute(f"GET DDL VIEW {schema}.{view_name}")
-        ddl = cursor.fetchone()[0]
-        save_ddl('views', schema, view_name, ddl)
-    
-    # Stored Procedures
-    cursor.execute(f"SHOW PROCEDURES IN SCHEMA {schema}")
-    for proc in cursor.fetchall():
-        proc_name = proc[1]
-        cursor.execute(f"GET DDL PROCEDURE {schema}.{proc_name}")
-        ddl = cursor.fetchone()[0]
-        save_ddl('procedures', schema, proc_name, ddl)
+        for schema in schemas:
+            # Tables
+            cursor.execute(f"SHOW TABLES IN SCHEMA {schema}")
+            for table in cursor.fetchall():
+                table_name = table[1]
+                cursor.execute(f"GET DDL TABLE {schema}.{table_name}")
+                ddl = cursor.fetchone()[0]
+                save_ddl('tables', schema, table_name, ddl)
+            
+            # Views
+            cursor.execute(f"SHOW VIEWS IN SCHEMA {schema}")
+            for view in cursor.fetchall():
+                view_name = view[1]
+                cursor.execute(f"GET DDL VIEW {schema}.{view_name}")
+                ddl = cursor.fetchone()[0]
+                save_ddl('views', schema, view_name, ddl)
+            
+            # Stored Procedures
+            cursor.execute(f"SHOW PROCEDURES IN SCHEMA {schema}")
+            for proc in cursor.fetchall():
+                proc_name = proc[1]
+                cursor.execute(f"GET DDL PROCEDURE {schema}.{proc_name}")
+                ddl = cursor.fetchone()[0]
+                save_ddl('procedures', schema, proc_name, ddl)
 
-conn.close()
-EOF
+        conn.close()
+        EOF
+        python extract_ddls.py
     
     - name: Commit and push changes
       run: |
