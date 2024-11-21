@@ -36,6 +36,7 @@ jobs:
         import snowflake.connector
         import os
         import json
+        from snowflake.connector.errors import ProgrammingError
 
         # Ensure base directory exists
         base_dir = 'snowflake_ddls'
@@ -48,40 +49,56 @@ jobs:
         def quote_identifier(identifier):
             return f'"{identifier}"'
 
-        # Snowflake connection
-        conn = snowflake.connector.connect(
-            account=os.environ['SF_ACCOUNT'],
-            user=os.environ['SF_USERNAME'],
-            password=os.environ['SF_PASSWORD'],
-            role=os.environ['SF_ROLE'],
-            warehouse=os.environ['SF_WAREHOUSE'],
-            database=os.environ['SF_DATABASE']
-        )
-
-        cursor = conn.cursor()
-
-        # Function to create directory and save DDL
-        def save_ddl(object_type, schema, name, ddl):
-            # Create directory structure
-            dir_path = f'{base_dir}/{object_type}/{schema}'
-            os.makedirs(dir_path, exist_ok=True)
-            
-            # Save DDL to file
-            file_path = f'{dir_path}/{name}.sql'
-            with open(file_path, 'w') as f:
-                f.write(ddl)
-            print(f"Saved DDL to {file_path}")
-
-        # Get current database
-        current_db = os.environ['SF_DATABASE']
-        print(f"Processing database: {current_db}")
-
-        # First, use the database
-        cursor.execute(f"USE DATABASE {quote_identifier(current_db)}")
+        # Print connection parameters (excluding password)
+        print("Connecting with parameters:")
+        print(f"Account: {os.environ.get('SF_ACCOUNT')}")
+        print(f"Username: {os.environ.get('SF_USERNAME')}")
+        print(f"Role: {os.environ.get('SF_ROLE')}")
+        print(f"Warehouse: {os.environ.get('SF_WAREHOUSE')}")
+        print(f"Database: {os.environ.get('SF_DATABASE')}")
 
         try:
+            # Snowflake connection
+            conn = snowflake.connector.connect(
+                account=os.environ['SF_ACCOUNT'],
+                user=os.environ['SF_USERNAME'],
+                password=os.environ['SF_PASSWORD'],
+                role=os.environ['SF_ROLE'],
+                warehouse=os.environ['SF_WAREHOUSE'],
+                database=None  # Don't specify database in connection
+            )
+
+            cursor = conn.cursor()
+            
+            # Test connection
+            cursor.execute("SELECT CURRENT_ROLE()")
+            current_role = cursor.fetchone()[0]
+            print(f"Connected successfully. Current role: {current_role}")
+
+            # List available databases
+            cursor.execute("SHOW DATABASES")
+            databases = [row[1] for row in cursor.fetchall()]
+            print(f"Available databases: {databases}")
+
+            # Get target database
+            target_db = os.environ['SF_DATABASE']
+            if target_db not in databases:
+                raise Exception(f"Database '{target_db}' not found in available databases: {databases}")
+
+            print(f"Using database: {target_db}")
+            cursor.execute(f"USE DATABASE {quote_identifier(target_db)}")
+
+            # Function to create directory and save DDL
+            def save_ddl(object_type, schema, name, ddl):
+                dir_path = f'{base_dir}/{object_type}/{schema}'
+                os.makedirs(dir_path, exist_ok=True)
+                file_path = f'{dir_path}/{name}.sql'
+                with open(file_path, 'w') as f:
+                    f.write(ddl)
+                print(f"Saved DDL to {file_path}")
+
             # Extract schemas
-            cursor.execute(f"SHOW SCHEMAS IN DATABASE {quote_identifier(current_db)}")
+            cursor.execute("SHOW SCHEMAS")
             schemas = [row[1] for row in cursor.fetchall() 
                       if not row[1].startswith('INFORMATION_SCHEMA') 
                       and row[1] not in ['ACCOUNT_USAGE', 'SNOWFLAKE']]
@@ -91,46 +108,48 @@ jobs:
                 print(f"Processing schema: {schema}")
                 quoted_schema = quote_identifier(schema)
                 
-                # Use the schema
-                cursor.execute(f"USE SCHEMA {quoted_schema}")
-                
                 try:
+                    cursor.execute(f"USE SCHEMA {quoted_schema}")
+                    
                     # Tables
-                    cursor.execute(f"SHOW TABLES IN SCHEMA {quote_identifier(current_db)}.{quoted_schema}")
+                    cursor.execute(f"SHOW TABLES IN SCHEMA {quoted_schema}")
                     tables = cursor.fetchall()
                     print(f"Found {len(tables)} tables in {schema}")
                     
                     for table in tables:
                         table_name = table[1]
                         quoted_table = quote_identifier(table_name)
-                        print(f"Extracting DDL for table: {table_name}")
-                        cursor.execute(f"SELECT GET_DDL('TABLE', '{quote_identifier(current_db)}.{quoted_schema}.{quoted_table}')")
+                        full_name = f"{quoted_schema}.{quoted_table}"
+                        print(f"Extracting DDL for table: {full_name}")
+                        cursor.execute(f"SELECT GET_DDL('TABLE', '{full_name}')")
                         ddl = cursor.fetchone()[0]
                         save_ddl('tables', schema, table_name, ddl)
                     
                     # Views
-                    cursor.execute(f"SHOW VIEWS IN SCHEMA {quote_identifier(current_db)}.{quoted_schema}")
+                    cursor.execute(f"SHOW VIEWS IN SCHEMA {quoted_schema}")
                     views = cursor.fetchall()
                     print(f"Found {len(views)} views in {schema}")
                     
                     for view in views:
                         view_name = view[1]
                         quoted_view = quote_identifier(view_name)
-                        print(f"Extracting DDL for view: {view_name}")
-                        cursor.execute(f"SELECT GET_DDL('VIEW', '{quote_identifier(current_db)}.{quoted_schema}.{quoted_view}')")
+                        full_name = f"{quoted_schema}.{quoted_view}"
+                        print(f"Extracting DDL for view: {full_name}")
+                        cursor.execute(f"SELECT GET_DDL('VIEW', '{full_name}')")
                         ddl = cursor.fetchone()[0]
                         save_ddl('views', schema, view_name, ddl)
                     
                     # Stored Procedures
-                    cursor.execute(f"SHOW PROCEDURES IN SCHEMA {quote_identifier(current_db)}.{quoted_schema}")
+                    cursor.execute(f"SHOW PROCEDURES IN SCHEMA {quoted_schema}")
                     procs = cursor.fetchall()
                     print(f"Found {len(procs)} procedures in {schema}")
                     
                     for proc in procs:
                         proc_name = proc[1]
                         quoted_proc = quote_identifier(proc_name)
-                        print(f"Extracting DDL for procedure: {proc_name}")
-                        cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{quote_identifier(current_db)}.{quoted_schema}.{quoted_proc}')")
+                        full_name = f"{quoted_schema}.{quoted_proc}"
+                        print(f"Extracting DDL for procedure: {full_name}")
+                        cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{full_name}')")
                         ddl = cursor.fetchone()[0]
                         save_ddl('procedures', schema, proc_name, ddl)
                 
@@ -139,10 +158,12 @@ jobs:
                     continue
 
         except Exception as e:
-            print(f"Error processing database: {str(e)}")
+            print(f"Error: {str(e)}")
+            raise
         finally:
-            conn.close()
-            print("Snowflake connection closed")
+            if 'conn' in locals():
+                conn.close()
+                print("Snowflake connection closed")
         EOF
         python extract_ddls.py
     
