@@ -14,32 +14,25 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    # Step 2: Set up Python (if using a Python script)
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
+    # Step 2: Set up SnowSQL (to execute Snowflake queries)
+    - name: Install SnowSQL
+      run: |
+        curl -O https://s3.amazonaws.com/snowflake-devops/snowflake-tools/snowcli/snowcli-latest.tar.gz
+        tar -xvzf snowcli-latest.tar.gz
+        sudo mv snowcli /usr/local/bin
 
-    # Step 3: Install dependencies (if using a Python script)
-    - name: Install dependencies
-      run: pip install snowflake-connector-python
-
-    # Step 4: Run the extraction script or SnowSQL commands
-    - name: Extract DDLs
+    # Step 3: Run the SnowSQL command to extract DDLs
+    - name: Extract DDLs from Snowflake
       env:
         SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
         SF_USERNAME: ${{ secrets.SF_USERNAME }}
         SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
       run: |
-        # Example: Using a Python script
-        python extract_ddls.py
-
-        # OR Example: Using SnowSQL
         snowsql -a $SF_ACCOUNT -u $SF_USERNAME -p $SF_PASSWORD -o output_file=ddls/ddl_output.sql -q "
         SELECT GET_DDL('DATABASE', 'YOUR_DATABASE_NAME');
         "
 
-    # Step 5: Save DDLs back to the repository
+    # Step 4: Commit and push DDLs back to the repository
     - name: Commit and push DDLs
       run: |
         git config --global user.name "GitHub Actions"
