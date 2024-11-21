@@ -14,14 +14,19 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    # Step 2: Install SnowSQL
+    # Step 2: Ensure DNS resolution (temporary workaround for DNS issues)
+    - name: Set DNS resolver
+      run: |
+        sudo sh -c 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
+
+    # Step 3: Install SnowSQL
     - name: Install SnowSQL
       run: |
         curl -o snowsql.deb https://repo.snowflake.com/snowsql/ubuntu/snowflake-snowsql-latest_amd64.deb
         sudo dpkg -i snowsql.deb
         sudo apt-get install -f  # Ensure dependencies are installed
 
-    # Step 3: Run the SnowSQL command to extract DDLs
+    # Step 4: Run the SnowSQL command to extract DDLs
     - name: Extract DDLs from Snowflake
       env:
         SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
@@ -32,7 +37,7 @@ jobs:
         SELECT GET_DDL('DATABASE', 'YOUR_DATABASE_NAME');
         "
 
-    # Step 4: Commit and push DDLs back to the repository
+    # Step 5: Commit and push DDLs back to the repository
     - name: Commit and push DDLs
       run: |
         git config --global user.name "GitHub Actions"
