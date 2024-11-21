@@ -37,7 +37,7 @@ jobs:
           # Ensure SnowSQL is installed correctly
           snowsql --version
 
-          # Query Snowflake to extract DDLs for all objects
+          # Query Snowflake to extract DDLs for all tables
           echo "Extracting DDLs from Snowflake..."
           snowsql -a $SF_ACCOUNT -u $SF_USERNAME -r $SF_ROLE -w $SF_WAREHOUSE -p $SF_PASSWORD \
             -q "SHOW TABLES IN SCHEMA PUBLIC;" | jq -r '.[].name' | while read table_name; do
@@ -51,4 +51,4 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: ddl-files
-          path: *.sql
+          path: "*.sql"
