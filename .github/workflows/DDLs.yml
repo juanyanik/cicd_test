@@ -1,100 +1,51 @@
-name: Export Snowflake DDLs
+name: Extract Snowflake DDLs
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger
+  schedule:           # Optional: scheduled runs
+    - cron: '0 0 * * *'  # Runs daily at midnight UTC
 
 jobs:
-  export_ddls:
+  extract-ddls:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+    # Step 1: Checkout the repository
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
+    # Step 2: Set up Python (if using a Python script)
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-      - name: Install dependencies
-        run: pip install snowflake-connector-python
+    # Step 3: Install dependencies (if using a Python script)
+    - name: Install dependencies
+      run: pip install snowflake-connector-python
 
-      - name: Export DDLs
-        env:
-          SF_USERNAME: ${{ secrets.SF_USERNAME }}
-          SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
-          SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
-          SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
-          SF_ROLE: ${{ secrets.SF_ROLE }}
-        run: |
-          python <<EOF
-          import snowflake.connector
-          import os
+    # Step 4: Run the extraction script or SnowSQL commands
+    - name: Extract DDLs
+      env:
+        SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
+        SF_USER: ${{ secrets.SF_USER }}
+        SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
+      run: |
+        # Example: Using a Python script
+        python extract_ddls.py
 
-          # Snowflake connection
-          conn = snowflake.connector.connect(
-              user=os.getenv('SF_USERNAME'),
-              password=os.getenv('SF_PASSWORD'),
-              account=os.getenv('SF_ACCOUNT'),
-              warehouse=os.getenv('SF_WAREHOUSE'),
-              role=os.getenv('SF_ROLE')
-          )
+        # OR Example: Using SnowSQL
+        snowsql -a $SF_ACCOUNT -u $SF_USER -p $SF_PASSWORD -o output_file=ddls/ddl_output.sql -q "
+        SELECT GET_DDL('DATABASE', 'YOUR_DATABASE_NAME');
+        "
 
-          cursor = conn.cursor()
-
-          # Query to get all databases
-          cursor.execute("SHOW DATABASES")
-          databases = cursor.fetchall()
-
-          # Create directories in the repo based on Snowflake structure
-          repo_dir = './snowflake_ddls'
-          os.makedirs(repo_dir, exist_ok=True)
-
-          # Loop through each database and its objects
-          for db in databases:
-              db_name = db[1]
-              cursor.execute(f"USE DATABASE {db_name}")
-
-              # Get all schemas in the database
-              cursor.execute("SHOW SCHEMAS")
-              schemas = cursor.fetchall()
-
-              for schema in schemas:
-                  schema_name = schema[1]
-                  cursor.execute(f"USE SCHEMA {schema_name}")
-
-                  # Get all tables in the schema
-                  cursor.execute("SHOW TABLES")
-                  tables = cursor.fetchall()
-
-                  for table in tables:
-                      table_name = table[1]
-                      table_ddl_query = f"SHOW CREATE TABLE \"{schema_name}\".\"{table_name}\""
-                      
-                      try:
-                          cursor.execute(table_ddl_query)
-                          ddl_result = cursor.fetchone()
-                          ddl = ddl_result[0] if ddl_result else None
-                      except snowflake.connector.errors.ProgrammingError as e:
-                          print(f"Error fetching DDL for {schema_name}.{table_name}: {e}")
-                          ddl = None
-
-                      # Create subdirectories based on the database and schema
-                      table_dir = os.path.join(repo_dir, db_name, schema_name)
-                      os.makedirs(table_dir, exist_ok=True)
-
-                      # Write the DDL to a file
-                      if ddl:
-                          ddl_file_path = os.path.join(table_dir, f"{table_name}_ddl.sql")
-                          with open(ddl_file_path, "w") as f:
-                              f.write(ddl)
-
-          cursor.close()
-          conn.close()
-          EOF
-
-      - name: Upload DDLs as artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: snowflake-ddls
-          path: ./snowflake_ddls
+    # Step 5: Save DDLs back to the repository
+    - name: Commit and push DDLs
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git add ddls/
+        git commit -m "Update Snowflake DDLs"
+        git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
