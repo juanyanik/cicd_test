@@ -30,12 +30,20 @@ jobs:
         SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
         SF_ROLE: ${{ secrets.SF_ROLE }}
         SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
-        SF_DATABASE: ${{ secrets.SF_DATABASE }}  # Added database parameter
+        SF_DATABASE: ${{ secrets.SF_DATABASE }}
       run: |
         cat << 'EOF' > extract_ddls.py
         import snowflake.connector
         import os
         import json
+
+        # Ensure base directory exists
+        base_dir = 'snowflake_ddls'
+        os.makedirs(base_dir, exist_ok=True)
+
+        # Create a marker file to ensure the directory is tracked even if empty
+        with open(os.path.join(base_dir, '.gitkeep'), 'w') as f:
+            f.write('')
 
         # Snowflake connection
         conn = snowflake.connector.connect(
@@ -44,7 +52,7 @@ jobs:
             password=os.environ['SF_PASSWORD'],
             role=os.environ['SF_ROLE'],
             warehouse=os.environ['SF_WAREHOUSE'],
-            database=os.environ['SF_DATABASE']  # Added database parameter
+            database=os.environ['SF_DATABASE']
         )
 
         cursor = conn.cursor()
@@ -52,57 +60,74 @@ jobs:
         # Function to create directory and save DDL
         def save_ddl(object_type, schema, name, ddl):
             # Create directory structure
-            dir_path = f'snowflake_ddls/{object_type}/{schema}'
+            dir_path = f'{base_dir}/{object_type}/{schema}'
             os.makedirs(dir_path, exist_ok=True)
             
             # Save DDL to file
             file_path = f'{dir_path}/{name}.sql'
             with open(file_path, 'w') as f:
                 f.write(ddl)
+            print(f"Saved DDL to {file_path}")
 
         # Get current database
         current_db = os.environ['SF_DATABASE']
+        print(f"Processing database: {current_db}")
 
-        # Extract schemas
-        cursor.execute(f"SHOW SCHEMAS IN DATABASE {current_db}")
-        schemas = [row[1] for row in cursor.fetchall() if not row[1].startswith('INFORMATION_SCHEMA')]
+        try:
+            # Extract schemas
+            cursor.execute(f"SHOW SCHEMAS IN DATABASE {current_db}")
+            schemas = [row[1] for row in cursor.fetchall() if not row[1].startswith('INFORMATION_SCHEMA')]
+            print(f"Found schemas: {schemas}")
 
-        for schema in schemas:
-            print(f"Processing schema: {schema}")
-            
-            try:
-                # Tables
-                cursor.execute(f"SHOW TABLES IN SCHEMA {current_db}.{schema}")
-                for table in cursor.fetchall():
-                    table_name = table[1]
-                    print(f"Extracting DDL for table: {table_name}")
-                    cursor.execute(f"SELECT GET_DDL('TABLE', '{current_db}.{schema}.{table_name}')")
-                    ddl = cursor.fetchone()[0]
-                    save_ddl('tables', schema, table_name, ddl)
+            for schema in schemas:
+                print(f"Processing schema: {schema}")
                 
-                # Views
-                cursor.execute(f"SHOW VIEWS IN SCHEMA {current_db}.{schema}")
-                for view in cursor.fetchall():
-                    view_name = view[1]
-                    print(f"Extracting DDL for view: {view_name}")
-                    cursor.execute(f"SELECT GET_DDL('VIEW', '{current_db}.{schema}.{view_name}')")
-                    ddl = cursor.fetchone()[0]
-                    save_ddl('views', schema, view_name, ddl)
+                try:
+                    # Tables
+                    cursor.execute(f"SHOW TABLES IN SCHEMA {current_db}.{schema}")
+                    tables = cursor.fetchall()
+                    print(f"Found {len(tables)} tables in {schema}")
+                    
+                    for table in tables:
+                        table_name = table[1]
+                        print(f"Extracting DDL for table: {table_name}")
+                        cursor.execute(f"SELECT GET_DDL('TABLE', '{current_db}.{schema}.{table_name}')")
+                        ddl = cursor.fetchone()[0]
+                        save_ddl('tables', schema, table_name, ddl)
+                    
+                    # Views
+                    cursor.execute(f"SHOW VIEWS IN SCHEMA {current_db}.{schema}")
+                    views = cursor.fetchall()
+                    print(f"Found {len(views)} views in {schema}")
+                    
+                    for view in views:
+                        view_name = view[1]
+                        print(f"Extracting DDL for view: {view_name}")
+                        cursor.execute(f"SELECT GET_DDL('VIEW', '{current_db}.{schema}.{view_name}')")
+                        ddl = cursor.fetchone()[0]
+                        save_ddl('views', schema, view_name, ddl)
+                    
+                    # Stored Procedures
+                    cursor.execute(f"SHOW PROCEDURES IN SCHEMA {current_db}.{schema}")
+                    procs = cursor.fetchall()
+                    print(f"Found {len(procs)} procedures in {schema}")
+                    
+                    for proc in procs:
+                        proc_name = proc[1]
+                        print(f"Extracting DDL for procedure: {proc_name}")
+                        cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{current_db}.{schema}.{proc_name}')")
+                        ddl = cursor.fetchone()[0]
+                        save_ddl('procedures', schema, proc_name, ddl)
                 
-                # Stored Procedures
-                cursor.execute(f"SHOW PROCEDURES IN SCHEMA {current_db}.{schema}")
-                for proc in cursor.fetchall():
-                    proc_name = proc[1]
-                    print(f"Extracting DDL for procedure: {proc_name}")
-                    cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{current_db}.{schema}.{proc_name}')")
-                    ddl = cursor.fetchone()[0]
-                    save_ddl('procedures', schema, proc_name, ddl)
-            
-            except Exception as e:
-                print(f"Error processing schema {schema}: {str(e)}")
-                continue
+                except Exception as e:
+                    print(f"Error processing schema {schema}: {str(e)}")
+                    continue
 
-        conn.close()
+        except Exception as e:
+            print(f"Error processing database: {str(e)}")
+        finally:
+            conn.close()
+            print("Snowflake connection closed")
         EOF
         python extract_ddls.py
     
@@ -110,6 +135,18 @@ jobs:
       run: |
         git config user.name github-actions
         git config user.email github-actions@github.com
-        git add snowflake_ddls
-        git commit -m "Update Snowflake DDLs" || exit 0
-        git push
+        
+        # Check if there are any changes to commit
+        if [ -d "snowflake_ddls" ]; then
+          if git status --porcelain | grep .; then
+            echo "Changes detected, committing..."
+            git add snowflake_ddls/
+            git commit -m "Update Snowflake DDLs"
+            git push
+          else
+            echo "No changes to commit"
+          fi
+        else
+          echo "snowflake_ddls directory not found"
+          exit 1
+        fi
