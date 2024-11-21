@@ -28,14 +28,14 @@ jobs:
     - name: Extract DDLs
       env:
         SF_ACCOUNT: ${{ secrets.SF_ACCOUNT }}
-        SF_USER: ${{ secrets.SF_USER }}
+        SF_USERNAME: ${{ secrets.SF_USERNAME }}
         SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
       run: |
         # Example: Using a Python script
         python extract_ddls.py
 
         # OR Example: Using SnowSQL
-        snowsql -a $SF_ACCOUNT -u $SF_USER -p $SF_PASSWORD -o output_file=ddls/ddl_output.sql -q "
+        snowsql -a $SF_ACCOUNT -u $SF_USERNAME -p $SF_PASSWORD -o output_file=ddls/ddl_output.sql -q "
         SELECT GET_DDL('DATABASE', 'YOUR_DATABASE_NAME');
         "
 
