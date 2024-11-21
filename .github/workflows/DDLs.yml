@@ -45,6 +45,9 @@ jobs:
         with open(os.path.join(base_dir, '.gitkeep'), 'w') as f:
             f.write('')
 
+        def quote_identifier(identifier):
+            return f'"{identifier}"'
+
         # Snowflake connection
         conn = snowflake.connector.connect(
             account=os.environ['SF_ACCOUNT'],
@@ -73,49 +76,61 @@ jobs:
         current_db = os.environ['SF_DATABASE']
         print(f"Processing database: {current_db}")
 
+        # First, use the database
+        cursor.execute(f"USE DATABASE {quote_identifier(current_db)}")
+
         try:
             # Extract schemas
-            cursor.execute(f"SHOW SCHEMAS IN DATABASE {current_db}")
-            schemas = [row[1] for row in cursor.fetchall() if not row[1].startswith('INFORMATION_SCHEMA')]
+            cursor.execute(f"SHOW SCHEMAS IN DATABASE {quote_identifier(current_db)}")
+            schemas = [row[1] for row in cursor.fetchall() 
+                      if not row[1].startswith('INFORMATION_SCHEMA') 
+                      and row[1] not in ['ACCOUNT_USAGE', 'SNOWFLAKE']]
             print(f"Found schemas: {schemas}")
 
             for schema in schemas:
                 print(f"Processing schema: {schema}")
+                quoted_schema = quote_identifier(schema)
+                
+                # Use the schema
+                cursor.execute(f"USE SCHEMA {quoted_schema}")
                 
                 try:
                     # Tables
-                    cursor.execute(f"SHOW TABLES IN SCHEMA {current_db}.{schema}")
+                    cursor.execute(f"SHOW TABLES IN SCHEMA {quote_identifier(current_db)}.{quoted_schema}")
                     tables = cursor.fetchall()
                     print(f"Found {len(tables)} tables in {schema}")
                     
                     for table in tables:
                         table_name = table[1]
+                        quoted_table = quote_identifier(table_name)
                         print(f"Extracting DDL for table: {table_name}")
-                        cursor.execute(f"SELECT GET_DDL('TABLE', '{current_db}.{schema}.{table_name}')")
+                        cursor.execute(f"SELECT GET_DDL('TABLE', '{quote_identifier(current_db)}.{quoted_schema}.{quoted_table}')")
                         ddl = cursor.fetchone()[0]
                         save_ddl('tables', schema, table_name, ddl)
                     
                     # Views
-                    cursor.execute(f"SHOW VIEWS IN SCHEMA {current_db}.{schema}")
+                    cursor.execute(f"SHOW VIEWS IN SCHEMA {quote_identifier(current_db)}.{quoted_schema}")
                     views = cursor.fetchall()
                     print(f"Found {len(views)} views in {schema}")
                     
                     for view in views:
                         view_name = view[1]
+                        quoted_view = quote_identifier(view_name)
                         print(f"Extracting DDL for view: {view_name}")
-                        cursor.execute(f"SELECT GET_DDL('VIEW', '{current_db}.{schema}.{view_name}')")
+                        cursor.execute(f"SELECT GET_DDL('VIEW', '{quote_identifier(current_db)}.{quoted_schema}.{quoted_view}')")
                         ddl = cursor.fetchone()[0]
                         save_ddl('views', schema, view_name, ddl)
                     
                     # Stored Procedures
-                    cursor.execute(f"SHOW PROCEDURES IN SCHEMA {current_db}.{schema}")
+                    cursor.execute(f"SHOW PROCEDURES IN SCHEMA {quote_identifier(current_db)}.{quoted_schema}")
                     procs = cursor.fetchall()
                     print(f"Found {len(procs)} procedures in {schema}")
                     
                     for proc in procs:
                         proc_name = proc[1]
+                        quoted_proc = quote_identifier(proc_name)
                         print(f"Extracting DDL for procedure: {proc_name}")
-                        cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{current_db}.{schema}.{proc_name}')")
+                        cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{quote_identifier(current_db)}.{quoted_schema}.{quoted_proc}')")
                         ddl = cursor.fetchone()[0]
                         save_ddl('procedures', schema, proc_name, ddl)
                 
