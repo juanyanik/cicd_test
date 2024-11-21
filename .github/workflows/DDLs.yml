@@ -30,6 +30,7 @@ jobs:
         SF_PASSWORD: ${{ secrets.SF_PASSWORD }}
         SF_ROLE: ${{ secrets.SF_ROLE }}
         SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
+        SF_DATABASE: ${{ secrets.SF_DATABASE }}  # Added database parameter
       run: |
         cat << 'EOF' > extract_ddls.py
         import snowflake.connector
@@ -42,7 +43,8 @@ jobs:
             user=os.environ['SF_USERNAME'],
             password=os.environ['SF_PASSWORD'],
             role=os.environ['SF_ROLE'],
-            warehouse=os.environ['SF_WAREHOUSE']
+            warehouse=os.environ['SF_WAREHOUSE'],
+            database=os.environ['SF_DATABASE']  # Added database parameter
         )
 
         cursor = conn.cursor()
@@ -58,34 +60,47 @@ jobs:
             with open(file_path, 'w') as f:
                 f.write(ddl)
 
+        # Get current database
+        current_db = os.environ['SF_DATABASE']
+
         # Extract schemas
-        cursor.execute("SHOW SCHEMAS")
-        schemas = [row[1] for row in cursor.fetchall()]
+        cursor.execute(f"SHOW SCHEMAS IN DATABASE {current_db}")
+        schemas = [row[1] for row in cursor.fetchall() if not row[1].startswith('INFORMATION_SCHEMA')]
 
         for schema in schemas:
-            # Tables
-            cursor.execute(f"SHOW TABLES IN SCHEMA {schema}")
-            for table in cursor.fetchall():
-                table_name = table[1]
-                cursor.execute(f"GET DDL TABLE {schema}.{table_name}")
-                ddl = cursor.fetchone()[0]
-                save_ddl('tables', schema, table_name, ddl)
+            print(f"Processing schema: {schema}")
             
-            # Views
-            cursor.execute(f"SHOW VIEWS IN SCHEMA {schema}")
-            for view in cursor.fetchall():
-                view_name = view[1]
-                cursor.execute(f"GET DDL VIEW {schema}.{view_name}")
-                ddl = cursor.fetchone()[0]
-                save_ddl('views', schema, view_name, ddl)
+            try:
+                # Tables
+                cursor.execute(f"SHOW TABLES IN SCHEMA {current_db}.{schema}")
+                for table in cursor.fetchall():
+                    table_name = table[1]
+                    print(f"Extracting DDL for table: {table_name}")
+                    cursor.execute(f"SELECT GET_DDL('TABLE', '{current_db}.{schema}.{table_name}')")
+                    ddl = cursor.fetchone()[0]
+                    save_ddl('tables', schema, table_name, ddl)
+                
+                # Views
+                cursor.execute(f"SHOW VIEWS IN SCHEMA {current_db}.{schema}")
+                for view in cursor.fetchall():
+                    view_name = view[1]
+                    print(f"Extracting DDL for view: {view_name}")
+                    cursor.execute(f"SELECT GET_DDL('VIEW', '{current_db}.{schema}.{view_name}')")
+                    ddl = cursor.fetchone()[0]
+                    save_ddl('views', schema, view_name, ddl)
+                
+                # Stored Procedures
+                cursor.execute(f"SHOW PROCEDURES IN SCHEMA {current_db}.{schema}")
+                for proc in cursor.fetchall():
+                    proc_name = proc[1]
+                    print(f"Extracting DDL for procedure: {proc_name}")
+                    cursor.execute(f"SELECT GET_DDL('PROCEDURE', '{current_db}.{schema}.{proc_name}')")
+                    ddl = cursor.fetchone()[0]
+                    save_ddl('procedures', schema, proc_name, ddl)
             
-            # Stored Procedures
-            cursor.execute(f"SHOW PROCEDURES IN SCHEMA {schema}")
-            for proc in cursor.fetchall():
-                proc_name = proc[1]
-                cursor.execute(f"GET DDL PROCEDURE {schema}.{proc_name}")
-                ddl = cursor.fetchone()[0]
-                save_ddl('procedures', schema, proc_name, ddl)
+            except Exception as e:
+                print(f"Error processing schema {schema}: {str(e)}")
+                continue
 
         conn.close()
         EOF
