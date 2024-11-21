@@ -31,6 +31,7 @@ jobs:
           SF_ROLE: ${{ secrets.SF_ROLE }}
           SF_WAREHOUSE: ${{ secrets.SF_WAREHOUSE }}
         run: |
+          python <<EOF
           import snowflake.connector
           import os
 
@@ -89,6 +90,7 @@ jobs:
 
           cursor.close()
           conn.close()
+          EOF
 
       - name: Commit and push changes
         run: |
