@@ -16,12 +16,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl jq
 
-      - name: Install SnowSQL CLI using tarball
+      - name: Install SnowSQL CLI
         run: |
-          curl -LO https://s3.amazonaws.com/snowflake-devops/snowflake-tools/snowflake-cli/snowcli-latest.tar.gz
-          tar -xvzf snowcli-latest.tar.gz
-          sudo mv snowcli /usr/local/bin
-          
+          curl -o snowsql.deb https://repo.snowflake.com/snowsql/ubuntu/snowflake-snowsql-latest_amd64.deb
+          sudo dpkg -i snowsql.deb
+          sudo apt-get install -f  # Ensure dependencies are installed
+
       - name: Set DNS for GitHub Actions runner
         run: |
           echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
